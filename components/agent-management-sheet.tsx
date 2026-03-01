@@ -68,6 +68,7 @@ function formatTime(dateStr: string) {
 
 const emptyForm: AgentFormData = {
   name: '',
+  team: 'Beginner',
   shift_start: '',
   shift_end: '',
   meal_start: '',
@@ -132,6 +133,7 @@ export function AgentManagementSheet({
   const handleEdit = (agent: Agent) => {
     setForm({
       name: agent.name,
+      team: agent.team || 'Beginner',
       shift_start: isoToTimeStr(agent.shift_start),
       shift_end: isoToTimeStr(agent.shift_end),
       meal_start: isoToTimeStr(agent.meal_start),
@@ -197,23 +199,45 @@ export function AgentManagementSheet({
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  {/* Name */}
-                  <div>
-                    <Label
-                      htmlFor="agent-name"
-                      className="text-xs text-muted-foreground mb-1"
-                    >
-                      Agent Name
-                    </Label>
-                    <Input
-                      id="agent-name"
-                      placeholder="e.g. Marcus Chen"
-                      value={form.name}
-                      onChange={(e) =>
-                        setForm({ ...form, name: e.target.value })
-                      }
-                      className="h-8 text-sm bg-background"
-                    />
+                  {/* Name and Team */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label
+                        htmlFor="agent-name"
+                        className="text-xs text-muted-foreground mb-1"
+                      >
+                        Agent Name
+                      </Label>
+                      <Input
+                        id="agent-name"
+                        placeholder="e.g. Marcus Chen"
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
+                        className="h-8 text-sm bg-background"
+                      />
+                    </div>
+                    <div>
+                      <Label
+                        htmlFor="agent-team"
+                        className="text-xs text-muted-foreground mb-1"
+                      >
+                        Team / Queue
+                      </Label>
+                      <select
+                        id="agent-team"
+                        value={form.team}
+                        onChange={(e) =>
+                          setForm({ ...form, team: e.target.value as 'PST' | 'UK' | 'Beginner' })
+                        }
+                        className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="Beginner">Beginner</option>
+                        <option value="PST">PST</option>
+                        <option value="UK">UK</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Shift Start / End -- TIME only */}
@@ -349,8 +373,13 @@ export function AgentManagementSheet({
 
                       {/* Agent info */}
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-foreground truncate">
-                          {agent.name}
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-semibold text-foreground truncate">
+                            {agent.name}
+                          </div>
+                          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase tracking-wide">
+                            {agent.team}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
                           <span className="flex items-center gap-0.5">

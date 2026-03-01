@@ -42,6 +42,7 @@ interface AgentCardProps {
   isNextUp: boolean
   onStatusChange: (agentId: string, status: string) => void
   onUpdateMealTime?: (agentId: string, mealStart: string) => void
+  onSetNextUp?: (agent: Agent) => void
   sortOrder: number
 }
 
@@ -91,6 +92,7 @@ export function AgentCard({
   isNextUp,
   onStatusChange,
   onUpdateMealTime,
+  onSetNextUp,
   sortOrder,
 }: AgentCardProps) {
   const {
@@ -320,6 +322,18 @@ export function AgentCard({
           </button>
         ))}
       </div>
+
+      {/* Set Next Up button */}
+      {onSetNextUp && !isNextUp && !isCooldown && agent.status === 'idle' && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-[10px] h-6 mt-1 border-primary/20 hover:bg-primary/10 hover:text-primary transition-colors"
+          onClick={() => onSetNextUp(agent)}
+        >
+          Set as Next Up
+        </Button>
+      )}
 
       {/* Edit Meal Time Modal */}
       <Dialog open={editMealOpen} onOpenChange={setEditMealOpen}>

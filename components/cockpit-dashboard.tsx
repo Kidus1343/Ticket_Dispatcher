@@ -45,7 +45,7 @@ function LiveClock() {
 export function CockpitDashboard() {
   const {
     agents,
-    rotation,
+    rotations,
     logs,
     loading,
     assignTicket,
@@ -56,13 +56,13 @@ export function CockpitDashboard() {
     updateAgent,
     removeAgent,
     reorderAgents,
+    resetActivityLogs,
+    setNextUpAgent,
   } = useDispatcher()
 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [activeDispatcher, setActiveDispatcher] = useState<string>('')
 
-  const nextUpAgent =
-    agents.find((a) => a.id === rotation?.next_up_agent_id) ?? null
 
   if (loading) {
     return (
@@ -158,9 +158,10 @@ export function CockpitDashboard() {
             ) : (
               <SortableAgentGrid
                 agents={agents}
-                nextUpAgentId={rotation?.next_up_agent_id ?? null}
+                rotations={rotations}
                 onStatusChange={updateAgentStatus}
                 onUpdateMealTime={updateMealTime}
+                onSetNextUp={setNextUpAgent}
                 onReorder={reorderAgents}
               />
             )}
@@ -169,14 +170,15 @@ export function CockpitDashboard() {
           {/* Sidebar: controls + log */}
           <aside className="flex w-full flex-col gap-4 lg:w-80 xl:w-96 shrink-0">
             <DispatchControls
-              nextUpAgent={nextUpAgent}
+              agents={agents}
+              rotations={rotations}
               activeDispatcherName={
                 agents.find((a) => a.id === activeDispatcher)?.name ?? null
               }
               onAssign={assignTicket}
               onDirectCall={directCall}
             />
-            <ActivityLog logs={logs} />
+            <ActivityLog logs={logs} onReset={resetActivityLogs} />
 
             {/* Legend */}
             <div className="rounded-lg border border-border bg-card p-4">

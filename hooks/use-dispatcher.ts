@@ -14,18 +14,20 @@ import {
   addDoc,
   deleteDoc,
   setDoc,
+  writeBatch,
 } from "firebase/firestore";
 import type {
   Agent,
   AgentFormData,
   RotationState,
   TicketLog,
+  AgentTeam,
 } from "@/lib/types";
 import { toast } from "sonner";
 
 export function useDispatcher() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [rotation, setRotation] = useState<RotationState | null>(null);
+  const [rotations, setRotations] = useState<Record<string, RotationState>>({});
   const [logs, setLogs] = useState<TicketLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadedCount, setLoadedCount] = useState(0);
@@ -108,16 +110,16 @@ export function useDispatcher() {
     unsubs.push(unsubAgents);
 
     const unsubRotation = onSnapshot(
-      doc(db, "rotation_state", "1"),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setRotation({ id: 1, ...docSnap.data() } as RotationState);
-        } else {
-          setDoc(doc(db, "rotation_state", "1"), {
-            next_up_agent_id: null,
-            updated_at: new Date().toISOString(),
-          });
-        }
+      collection(db, "rotation_state"),
+      (snapshot) => {
+        const newRotations: Record<string, RotationState> = {};
+        snapshot.docs.forEach((docSnap) => {
+          newRotations[docSnap.id] = {
+            id: docSnap.id,
+            ...docSnap.data(),
+          } as RotationState;
+        });
+        setRotations(newRotations);
         setLoadedCount((prev) => prev + 1);
       },
     );
@@ -162,8 +164,13 @@ export function useDispatcher() {
   }, []);
 
   const findNextEligible = useCallback(
-    (agentList: Agent[], currentAgentId: string | null): Agent | null => {
-      const evaluated = evaluateRules(agentList);
+    (
+      agentList: Agent[],
+      team: AgentTeam,
+      currentAgentId: string | null,
+    ): Agent | null => {
+      const teamAgents = agentList.filter((a) => a.team === team);
+      const evaluated = evaluateRules(teamAgents);
 
       const priorityAgents = evaluated.filter(
         (a) => a.is_priority && !a.is_do_not_assign,
@@ -189,82 +196,94 @@ export function useDispatcher() {
     [evaluateRules, getEligibleAgents],
   );
 
-  const assignTicket = useCallback(async () => {
-    if (!rotation?.next_up_agent_id) {
-      toast.error("No agent in rotation");
-      return;
-    }
+  const assignTicket = useCallback(
+    async (team: AgentTeam) => {
+      const rotation = rotations[team];
+      if (!rotation?.next_up_agent_id) {
+        toast.error(`No agent in ${team} rotation`);
+        return;
+      }
 
-    const currentAgent = agents.find((a) => a.id === rotation.next_up_agent_id);
-    if (!currentAgent) {
-      toast.error("Agent not found");
-      return;
-    }
-
-    if (currentAgent.status !== "idle") {
-      toast.error(
-        `${currentAgent.name} is not available (${currentAgent.status})`,
+      const currentAgent = agents.find(
+        (a) => a.id === rotation.next_up_agent_id,
       );
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "ticket_log"), {
-        agent_id: currentAgent.id,
-        agent_name: currentAgent.name,
-        action: "Salesforce ticket assigned",
-        created_at: new Date().toISOString(),
-      });
-
-      const nextAgent = findNextEligible(agents, currentAgent.id);
-      if (nextAgent) {
-        await updateDoc(doc(db, "rotation_state", "1"), {
-          next_up_agent_id: nextAgent.id,
-          updated_at: new Date().toISOString(),
-        });
+      if (!currentAgent) {
+        toast.error("Agent not found");
+        return;
       }
 
-      toast.success(`Ticket assigned to ${currentAgent.name}`);
-    } catch (err) {
-      toast.error("Error assigning ticket");
-      console.error(err);
-    }
-  }, [agents, rotation, findNextEligible]);
-
-  const directCall = useCallback(async () => {
-    if (!rotation?.next_up_agent_id) {
-      toast.error("No agent in rotation");
-      return;
-    }
-
-    const currentAgent = agents.find((a) => a.id === rotation.next_up_agent_id);
-    if (!currentAgent) {
-      toast.error("Agent not found");
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "ticket_log"), {
-        agent_id: currentAgent.id,
-        agent_name: currentAgent.name,
-        action: "Skipped - Direct phone call (Genesys)",
-        created_at: new Date().toISOString(),
-      });
-
-      const nextAgent = findNextEligible(agents, currentAgent.id);
-      if (nextAgent) {
-        await updateDoc(doc(db, "rotation_state", "1"), {
-          next_up_agent_id: nextAgent.id,
-          updated_at: new Date().toISOString(),
-        });
+      if (currentAgent.status !== "idle") {
+        toast.error(
+          `${currentAgent.name} is not available (${currentAgent.status})`,
+        );
+        return;
       }
 
-      toast.info(`${currentAgent.name} skipped (direct call)`);
-    } catch (err) {
-      toast.error("Error logging direct call");
-      console.error(err);
-    }
-  }, [agents, rotation, findNextEligible]);
+      try {
+        await addDoc(collection(db, "ticket_log"), {
+          agent_id: currentAgent.id,
+          agent_name: currentAgent.name,
+          action: `Salesforce ticket assigned (${team})`,
+          created_at: new Date().toISOString(),
+        });
+
+        const nextAgent = findNextEligible(agents, team, currentAgent.id);
+        if (nextAgent) {
+          await updateDoc(doc(db, "rotation_state", team), {
+            next_up_agent_id: nextAgent.id,
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        toast.success(`Ticket assigned to ${currentAgent.name}`);
+      } catch (err) {
+        toast.error("Error assigning ticket");
+        console.error(err);
+      }
+    },
+    [agents, rotations, findNextEligible],
+  );
+
+  const directCall = useCallback(
+    async (team: AgentTeam) => {
+      const rotation = rotations[team];
+      if (!rotation?.next_up_agent_id) {
+        toast.error(`No agent in ${team} rotation`);
+        return;
+      }
+
+      const currentAgent = agents.find(
+        (a) => a.id === rotation.next_up_agent_id,
+      );
+      if (!currentAgent) {
+        toast.error("Agent not found");
+        return;
+      }
+
+      try {
+        await addDoc(collection(db, "ticket_log"), {
+          agent_id: currentAgent.id,
+          agent_name: currentAgent.name,
+          action: `Skipped - Direct phone call (Genesys) (${team})`,
+          created_at: new Date().toISOString(),
+        });
+
+        const nextAgent = findNextEligible(agents, team, currentAgent.id);
+        if (nextAgent) {
+          await updateDoc(doc(db, "rotation_state", team), {
+            next_up_agent_id: nextAgent.id,
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        toast.info(`${currentAgent.name} skipped (direct call)`);
+      } catch (err) {
+        toast.error("Error logging direct call");
+        console.error(err);
+      }
+    },
+    [agents, rotations, findNextEligible],
+  );
 
   const updateAgentStatus = useCallback(
     async (agentId: string, status: string) => {
@@ -310,12 +329,16 @@ export function useDispatcher() {
       if (mealStart < shiftStart) mealStart.setDate(mealStart.getDate() + 1);
       const mealEnd = new Date(mealStart.getTime() + 60 * 60 * 1000);
 
+      const teamAgents = agents.filter((a) => a.team === form.team);
       const maxOrder =
-        agents.length > 0 ? Math.max(...agents.map((a) => a.sort_order)) : 0;
+        teamAgents.length > 0
+          ? Math.max(...teamAgents.map((a) => a.sort_order))
+          : 0;
 
       try {
         const docRef = await addDoc(collection(db, "agents"), {
           name: form.name,
+          team: form.team || "Beginner",
           status: "idle",
           shift_start: shiftStart.toISOString(),
           shift_end: shiftEnd.toISOString(),
@@ -326,9 +349,9 @@ export function useDispatcher() {
           updated_at: new Date().toISOString(),
         });
 
-        if (agents.length === 0) {
+        if (teamAgents.length === 0) {
           await setDoc(
-            doc(db, "rotation_state", "1"),
+            doc(db, "rotation_state", form.team || "Beginner"),
             {
               next_up_agent_id: docRef.id,
               updated_at: new Date().toISOString(),
@@ -337,7 +360,7 @@ export function useDispatcher() {
           );
         }
 
-        toast.success(`${form.name} added to rotation`);
+        toast.success(`${form.name} added to ${form.team} rotation`);
       } catch (error: any) {
         console.error("[v0] addAgent error:", error);
         toast.error(`Failed to add agent: ${error.message}`);
@@ -359,6 +382,7 @@ export function useDispatcher() {
       try {
         await updateDoc(doc(db, "agents", agentId), {
           name: form.name,
+          team: form.team || "Beginner",
           shift_start: shiftStart.toISOString(),
           shift_end: shiftEnd.toISOString(),
           meal_start: mealStart.toISOString(),
@@ -377,27 +401,33 @@ export function useDispatcher() {
   const removeAgent = useCallback(
     async (agentId: string) => {
       const agent = agents.find((a) => a.id === agentId);
+      if (!agent) return;
 
       try {
-        if (rotation?.next_up_agent_id === agentId) {
+        if (rotations[agent.team]?.next_up_agent_id === agentId) {
           const nextAgent = findNextEligible(
             agents.filter((a) => a.id !== agentId),
+            agent.team,
             null,
           );
-          await updateDoc(doc(db, "rotation_state", "1"), {
-            next_up_agent_id: nextAgent?.id ?? null,
-            updated_at: new Date().toISOString(),
-          });
+          await setDoc(
+            doc(db, "rotation_state", agent.team),
+            {
+              next_up_agent_id: nextAgent?.id ?? null,
+              updated_at: new Date().toISOString(),
+            },
+            { merge: true },
+          );
         }
 
         await deleteDoc(doc(db, "agents", agentId));
-        toast.success(`${agent?.name ?? "Agent"} removed`);
+        toast.success(`${agent.name} removed`);
       } catch (error) {
         toast.error("Failed to remove agent");
         console.error(error);
       }
     },
-    [agents, rotation, findNextEligible],
+    [agents, rotations, findNextEligible],
   );
 
   const updateMealTime = useCallback(
@@ -429,30 +459,57 @@ export function useDispatcher() {
   );
 
   const reorderAgents = useCallback(async (reorderedAgents: Agent[]) => {
-    const withNewOrder = reorderedAgents.map((a, i) => ({
-      ...a,
-      sort_order: i + 1,
-    }));
-    setAgents(withNewOrder);
-
     try {
-      const updates = withNewOrder.map((a) =>
-        updateDoc(doc(db, "agents", a.id), {
-          sort_order: a.sort_order,
+      const batch = writeBatch(db);
+      reorderedAgents.forEach((a, i) => {
+        batch.update(doc(db, "agents", a.id), {
+          team: a.team,
+          sort_order: i + 1,
           updated_at: new Date().toISOString(),
-        }),
-      );
-      await Promise.all(updates);
+        });
+      });
+      await batch.commit();
     } catch (error) {
-      toast.error("Failed to reorder agents. Reverting locally.");
+      toast.error("Failed to reorder agents.");
       console.error(error);
-      // Refresh from server if failed could be handled here since realtime will push updates.
+    }
+  }, []);
+
+  const setNextUpAgent = useCallback(async (agent: Agent) => {
+    try {
+      await setDoc(
+        doc(db, "rotation_state", agent.team),
+        {
+          next_up_agent_id: agent.id,
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+      toast.success(`${agent.name} set as next up`);
+    } catch (err) {
+      toast.error("Failed to update next up agent");
+      console.error(err);
+    }
+  }, []);
+
+  const resetActivityLogs = useCallback(async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "ticket_log"));
+      const batch = writeBatch(db);
+      querySnapshot.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+      toast.success("Activity log reset successfully");
+    } catch (err) {
+      toast.error("Failed to reset activity log");
+      console.error(err);
     }
   }, []);
 
   return {
     agents,
-    rotation,
+    rotations,
     logs,
     loading,
     assignTicket,
@@ -464,5 +521,7 @@ export function useDispatcher() {
     updateAgent,
     removeAgent,
     reorderAgents,
+    resetActivityLogs,
+    setNextUpAgent,
   };
 }

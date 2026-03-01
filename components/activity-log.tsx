@@ -2,11 +2,13 @@
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { TicketLog } from '@/lib/types'
-import { TicketCheck, PhoneForwarded, History } from 'lucide-react'
+import { TicketCheck, PhoneForwarded, History, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface ActivityLogProps {
   logs: TicketLog[]
+  onReset: () => void
 }
 
 function formatLogTime(dateStr: string) {
@@ -18,12 +20,23 @@ function formatLogTime(dateStr: string) {
   })
 }
 
-export function ActivityLog({ logs }: ActivityLogProps) {
+export function ActivityLog({ logs, onReset }: ActivityLogProps) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        <History className="size-3.5" />
-        Activity Log
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <History className="size-3.5" />
+          Activity Log
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          onClick={onReset}
+        >
+          <Trash2 className="size-3.5 mr-1" />
+          Reset
+        </Button>
       </div>
 
       <ScrollArea className="h-[280px]">
